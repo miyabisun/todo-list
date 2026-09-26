@@ -4,11 +4,12 @@ A single list of the things you have to do by hand, gathered from AI agents and 
 Open it on a phone, tap an item's link to go and act, then check it off.
 
 Each to-do is one Markdown file. The browser UI, an HTTP API and an MCP endpoint at `/mcp`
-read and write the same files. The application is public; your to-dos are not:
-they stay in your data directory and in the private backup archives you upload to R2.
+read and write the same files. This repository holds only the application code.
+Your to-dos live in your data directory and in any backup archives you create;
+keep the R2 bucket you upload them to private.
 
-The service has no built-in authentication. Run it on a home LAN or tailnet and
-control access there (Tailscale, a firewall or a proxy); do not expose it to the internet.
+The service has no built-in authentication: anyone who can reach its port can read and change
+the list. Run it on a home LAN or tailnet and control access there (Tailscale, a firewall or a proxy).
 
 ## Run with Docker
 
@@ -70,7 +71,8 @@ Optional memo in Markdown.
 | body | The memo after the closing `---`. The UI shows it as plain text. |
 
 An item is either open or done. Delete an item you no longer need through the API.
-Unknown frontmatter fields you add by hand survive edits made through the server.
+Other frontmatter fields you add by hand survive edits made through the server;
+`id` and `body` are reserved (the file name is the ID and the memo follows the fence).
 Each write replaces one file atomically. Run only one server per directory.
 
 ## HTTP API

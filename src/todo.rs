@@ -56,7 +56,12 @@ pub fn parse_document(id: &str, text: &str) -> Result<Todo, Error> {
     } else {
         return Err(invalid("missing closing ---"));
     };
-    let meta = serde_norway::from_str(yaml).map_err(|e| invalid(&e.to_string()))?;
+    let meta: Meta = serde_norway::from_str(yaml).map_err(|e| invalid(&e.to_string()))?;
+    if meta.extra.contains_key("id") || meta.extra.contains_key("body") {
+        return Err(invalid(
+            "id comes from the file name and the memo follows the closing ---",
+        ));
+    }
     Ok(Todo {
         id: id.into(),
         meta,
@@ -244,6 +249,9 @@ mod tests {
             "---\ntitle: t\ncreated_at: c\nupdated_at: u\n",
             "---\n- a list\n---\n",
             "---\ncreated_at: c\nupdated_at: u\n---\n",
+            // The file name is the id and the memo follows the fence; copies would shadow them.
+            "---\ntitle: t\ncreated_at: c\nupdated_at: u\nid: other\n---\n",
+            "---\ntitle: t\ncreated_at: c\nupdated_at: u\nbody: hidden\n---\n",
         ] {
             assert!(parse_document("a", text).is_err(), "{text:?}");
         }
