@@ -1,0 +1,36 @@
+[package]
+name = "todo-list"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+
+[dependencies]
+axum = "0.8.9"
+include_dir = "0.7.4"
+mime_guess = "2.0.5"
+rmcp = { version = "3.1.2", features = ["server", "transport-streamable-http-server"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.145"
+serde_norway = "0.9.42"
+time = { version = "0.3.41", features = ["formatting", "macros", "parsing"] }
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tower-http = { version = "0.7.0", features = ["trace"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+uuid = { version = "1.16.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.19.1"
+tower = { version = "0.5.3", features = ["util"] }
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+
+[profile.release]
+# Cargo's release defaults keep builds short for this I/O-bound service.
+opt-level = 3
+lto = false
+strip = true
+codegen-units = 16

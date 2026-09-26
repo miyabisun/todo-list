@@ -1,0 +1,14 @@
+.git
+.github
+target
+data
+bin
+tests
+client/node_modules
+client/dist
+client/test-results
+client/playwright-report
+*.log
+.env
+.env.*
+README.md

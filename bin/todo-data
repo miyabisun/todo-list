@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Snapshot a running todo-list into a verified archive, restore it, upload it to R2.
+
+Python standard library only; R2 upload also needs the AWS CLI (`aws`).
+The snapshot comes from the server's locked export, not a racy directory walk.
+"""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import urllib.request
+
+NAME = re.compile(r'[A-Za-z0-9_-]{1,128}\.md')
+
+
+def archive(files, path):
+    """Write `{name: markdown}` and a SHA-256 manifest; never replace an existing file."""
+    data = {}
+    for name, text in files.items():
+        if not NAME.fullmatch(name):
+            raise ValueError(f'unexpected file name in snapshot: {name!r}')
+        data[name] = text.encode()
+    manifest = {name: hashlib.sha256(body).hexdigest() for name, body in data.items()}
+    data['manifest.json'] = json.dumps(manifest, sort_keys=True).encode()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+        temp_path = Path(temporary.name)
+    try:
+        with tarfile.open(temp_path, 'w:gz') as tar:
+            for name, body in data.items():
+                entry = tarfile.TarInfo(name)
+                entry.mode = 0o600
+                entry.size = len(body)
+                tar.addfile(entry, io.BytesIO(body))
+        os.link(temp_path, path)  # fails instead of overwriting an existing generation
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return path
+
+
+def restore(archive_path, destination):
+    """Verify every entry and checksum, then publish a new directory (never overwrite)."""
+    destination = Path(destination)
+    if destination.exists():
+        raise FileExistsError(f'destination must not exist: {destination}')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.todo-data-', dir=destination.parent) as temporary:
+        stage = Path(temporary) / 'todos'
+        stage.mkdir()
+        with tarfile.open(archive_path, 'r:gz') as tar:
+            members = {m.name: m for m in tar.getmembers()}
+            if len(members) != len(tar.getmembers()):
+                raise ValueError('duplicate archive entry')
+            for name, member in members.items():
+                if not member.isfile() or not (name == 'manifest.json' or NAME.fullmatch(name)):
+                    raise ValueError(f'unexpected archive entry: {name!r}')
+            if 'manifest.json' not in members:
+                raise ValueError('missing snapshot manifest')
+            manifest = json.load(tar.extractfile('manifest.json'))
+            if set(manifest) != set(members) - {'manifest.json'}:
+                raise ValueError('manifest does not match the archive entries')
+            for name, digest in manifest.items():
+                body = tar.extractfile(members[name]).read()
+                if hashlib.sha256(body).hexdigest() != digest:
+                    raise ValueError(f'checksum mismatch: {name}')
+                (stage / name).write_bytes(body)
+        os.rename(stage, destination)
+
+
+def upload(archive_path):
+    required = ('R2_ENDPOINT', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY')
+    missing = [name for name in required if not os.environ.get(name)]
+    if missing:
+        raise ValueError('R2 configuration missing: ' + ', '.join(missing))
+    if not shutil.which('aws'):
+        raise ValueError('R2 upload requires the AWS CLI executable (aws)')
+    prefix = os.environ.get('R2_PREFIX', 'todo-list').strip('/')
+    key = '/'.join(filter(None, [prefix, Path(archive_path).name]))
+    env = dict(os.environ, AWS_ACCESS_KEY_ID=os.environ['R2_ACCESS_KEY_ID'],
+               AWS_SECRET_ACCESS_KEY=os.environ['R2_SECRET_ACCESS_KEY'], AWS_DEFAULT_REGION='auto',
+               AWS_REQUEST_CHECKSUM_CALCULATION='when_required',
+               AWS_RESPONSE_CHECKSUM_VALIDATION='when_required')
+    subprocess.run(['aws', '--endpoint-url', os.environ['R2_ENDPOINT'], 's3', 'cp', str(archive_path),
+                    f"s3://{os.environ['R2_BUCKET']}/{key}", '--only-show-errors'], env=env, check=True)
+    return key
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command', required=True)
+    backup = commands.add_parser('snapshot', help='save a new archive generation')
+    backup.add_argument('--server', default='http://127.0.0.1:3000')
+    backup.add_argument('--output-dir', required=True, type=Path)
+    backup.add_argument('--upload', action='store_true', help='also upload the archive to R2')
+    restoration = commands.add_parser('restore', help='verify an archive into a new directory')
+    restoration.add_argument('archive', type=Path)
+    restoration.add_argument('destination', type=Path)
+    sending = commands.add_parser('upload', help='upload an existing archive to R2')
+    sending.add_argument('archive', type=Path)
+    args = parser.parse_args()
+    if args.command == 'restore':
+        restore(args.archive, args.destination)
+        print(f'Restored: {args.destination}')
+    elif args.command == 'upload':
+        print(f'Uploaded: {upload(args.archive)}')
+    else:
+        with urllib.request.urlopen(args.server.rstrip('/') + '/api/snapshot', timeout=60) as response:
+            files = json.load(response)['files']
+        name = datetime.now(timezone.utc).strftime('todos-%Y%m%dT%H%M%S.%fZ.tar.gz')
+        path = archive(files, args.output_dir / name)
+        print(f'Snapshot: {path} ({len(files)} todos)')
+        if args.upload:
+            print(f'Uploaded: {upload(path)}')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        raise SystemExit(f'todo-data: {error}')
