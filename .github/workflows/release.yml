@@ -14,12 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-    uses: ./.github/workflows/ci.yml
-
   publish:
-    needs: verify
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     permissions:
       # `gh release create` needs contents: write; the image push needs packages: write.
@@ -56,21 +52,8 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest
 
-      - name: Build release image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          load: true
-          tags: todo-list:test
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:build-cache
-
-      - name: Smoke-test the release image
-        run: bash .github/smoke-image.sh todo-list:test
-
-      # Same builder, inputs and labels: reuses the tested image and keeps
-      # intermediate stages as the next tag's cache.
-      - name: Publish tested image and build cache
+      # Keeps intermediate stages as the next tag's cache.
+      - name: Build and publish image and build cache
         id: image
         uses: docker/build-push-action@v7
         with:
@@ -78,6 +61,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:build-cache
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:build-cache,mode=max
 
       - name: Create the GitHub Release

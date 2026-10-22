@@ -157,7 +157,7 @@ For frontend work, run `npm --prefix client run dev` in a second terminal and op
 <http://127.0.0.1:5173>; Vite proxies `/api` to port 3000.
 [`DESIGN.md`](DESIGN.md) is the UI contract.
 
-Checks, as run by CI on every branch push:
+Checks to pass locally before every commit (CI does not run them):
 
 ```sh
 npm --prefix client run format:check
@@ -172,25 +172,19 @@ python3 -m unittest discover -s tests -p "test_*.py"
 cargo build --locked
 npx --prefix client playwright install chromium
 npm --prefix client run test:e2e
+docker build -t todo-list:test .
+bash tests/smoke-image.sh todo-list:test
 ```
 
+The smoke test needs `curl` and `jq` and exercises the image with an empty volume.
 The browser tests start `target/debug/todo-list` on port 5187 with a temporary data directory,
 seed fictional items and remove the directory afterwards.
 Set `E2E_EVIDENCE_DIR` to keep screenshots and layout measurements.
 
 A `vMAJOR.MINOR.PATCH` tag that matches `Cargo.toml` starts the release workflow:
 
-1. It reruns the checks above and builds the image.
-2. `.github/smoke-image.sh` tests the image with an empty volume.
-3. It publishes `ghcr.io/miyabisun/todo-list:<version>` and `:latest`.
-4. A GitHub Release records the image digest.
-
-Try the image locally (needs `curl` and `jq`):
-
-```sh
-docker build -t todo-list:test .
-bash .github/smoke-image.sh todo-list:test
-```
+1. It builds the image and publishes `ghcr.io/miyabisun/todo-list:<version>` and `:latest`.
+2. A GitHub Release records the image digest.
 
 ## License
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise a built image with an empty volume: health, UI, API round trip, MCP, runtime user.
 set -euo pipefail
-image=${1:?usage: smoke-image.sh IMAGE}
+image=${1:?usage: tests/smoke-image.sh IMAGE}
 container=$(docker run --detach --publish 127.0.0.1::3000 "$image")
 trap 'docker rm --force --volumes "$container" >/dev/null' EXIT
 base="http://$(docker port "$container" 3000/tcp)"
