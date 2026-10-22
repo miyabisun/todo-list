@@ -25,8 +25,10 @@ tempfile = "3.19.1"
 tower = { version = "0.5.3", features = ["util"] }
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+undocumented_unsafe_blocks = "warn"
+missing_assert_message = "warn"
 
 [profile.release]
 # Cargo's release defaults keep builds short for this I/O-bound service.

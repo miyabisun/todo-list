@@ -9,8 +9,8 @@ use todo_list::{app, store::Store};
 use tower::ServiceExt;
 
 fn server() -> (tempfile::TempDir, Router) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("todos")).unwrap();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let store = Store::open(dir.path().join("todos")).expect("open store in temp dir");
     (dir, app(store))
 }
 
@@ -22,11 +22,13 @@ async fn send(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (St
     let body = body.map_or_else(Body::empty, |v| Body::from(v.to_string()));
     let response = app
         .clone()
-        .oneshot(request.body(body).unwrap())
+        .oneshot(request.body(body).expect("build HTTP request"))
         .await
-        .unwrap();
+        .expect("router is infallible");
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read response body");
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -226,13 +228,19 @@ async fn rpc(app: &Router, session: Option<&str>, message: Value) -> (HeaderMap,
     }
     let response = app
         .clone()
-        .oneshot(request.body(Body::from(message.to_string())).unwrap())
+        .oneshot(
+            request
+                .body(Body::from(message.to_string()))
+                .expect("build MCP request"),
+        )
         .await
-        .unwrap();
+        .expect("router is infallible");
     let headers = response.headers().clone();
     assert!(response.status().is_success(), "{}", response.status());
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read MCP response body");
+    let text = String::from_utf8(bytes.to_vec()).expect("MCP response is UTF-8");
     let value = text
         .lines()
         .find_map(|line| {
@@ -262,14 +270,21 @@ async fn session(app: &Router) -> String {
         json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
     )
     .await;
-    assert!(init["result"]["capabilities"]["tools"].is_object());
+    assert!(
+        init["result"]["capabilities"]["tools"].is_object(),
+        "initialize must advertise tools: {init}"
+    );
     assert!(
         init["result"]["instructions"]
             .as_str()
-            .unwrap()
-            .contains("todo_add")
+            .expect("initialize returns instructions")
+            .contains("todo_add"),
+        "instructions must mention todo_add: {init}"
     );
-    let session = headers["mcp-session-id"].to_str().unwrap().to_owned();
+    let session = headers["mcp-session-id"]
+        .to_str()
+        .expect("session id is ASCII")
+        .to_owned();
     rpc(
         app,
         Some(&session),
@@ -284,9 +299,9 @@ async fn session(app: &Router) -> String {
     .await;
     let mut names: Vec<_> = tools["result"]["tools"]
         .as_array()
-        .unwrap()
+        .expect("tools/list returns an array")
         .iter()
-        .map(|t| t["name"].as_str().unwrap())
+        .map(|t| t["name"].as_str().expect("each tool has a name"))
         .collect();
     names.sort_unstable();
     assert_eq!(
@@ -297,7 +312,8 @@ async fn session(app: &Router) -> String {
             "todo_get",
             "todo_list",
             "todo_update"
-        ]
+        ],
+        "tools/list must advertise exactly the to-do tools"
     );
 
     session
